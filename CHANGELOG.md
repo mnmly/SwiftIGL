@@ -7,6 +7,28 @@ once it reaches `1.0.0`.
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- ``MeshAABB`` — persistent axis-aligned bounding-box hierarchy. Build
+  once per mesh, run thousands of `O(log F)` queries against it. Wraps
+  `igl::AABB<MatrixXd, 3>` via an opaque-handle pattern so the
+  template-heavy state stays inside the C++ bridge.
+  - ``MeshAABB/closestPoint(of:)`` — batch closest-point query.
+  - ``MeshAABB/rayHits(origins:directions:)`` — batch ray/mesh
+    intersection.
+- One-shot ``rayMeshIntersect(origins:directions:on:)`` — simpler API
+  for low-throughput cases (one-off pickings, etc.).
+- ``RayHitsResult`` value type: `faceIds` (`-1` for miss), `ts`, and
+  `barycentrics`.
+- Topology queries:
+  - ``edges(_:)`` — unique undirected edges.
+  - ``triangleTriangleAdjacency(_:)`` — face-face adjacency
+    (`-1` for boundary edges).
+- 7 new tests across `MeshAABB`, `Topology`, and `Ray casting (one-shot)`
+  suites (29 total).
+
 ## [0.2.0]
 
 ### Added (closest-point / barycentric / curvature — o-voxel-aligned)
@@ -59,6 +81,7 @@ Initial release.
   winding numbers, voxel grids, marching cubes on a sphere, bounding
   box, deduplication, and unique simplices.
 
-[Unreleased]: https://github.com/mnmly/SwiftIGL/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mnmly/SwiftIGL/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mnmly/SwiftIGL/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mnmly/SwiftIGL/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mnmly/SwiftIGL/releases/tag/v0.1.0

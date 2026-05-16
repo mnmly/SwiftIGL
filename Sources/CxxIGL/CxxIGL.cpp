@@ -18,6 +18,11 @@
 #include <igl/barycentric_coordinates.h>
 #include <igl/barycenter.h>
 #include <igl/gaussian_curvature.h>
+#include <igl/edges.h>
+#include <igl/triangle_triangle_adjacency.h>
+#include <igl/ray_mesh_intersect.h>
+#include <igl/AABB.h>
+#include <igl/Hit.h>
 
 #include <exception>
 #include <limits>
@@ -634,6 +639,241 @@ bool gaussianCurvature(const DoubleVector& vertices,
         return false;
     } catch (...) {
         errorOut = "gaussianCurvature threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// edges
+// ---------------------------------------------------------------------------
+
+bool edges(const Int32Vector& faces,
+           Int32Vector& edgesOut,
+           std::string& errorOut) {
+    edgesOut.clear();
+    if (faces.size() % 3 != 0) {
+        errorOut = "faces buffer size must be a multiple of 3";
+        return false;
+    }
+    try {
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        Eigen::MatrixXi E;
+        igl::edges(F, E);
+        flattenI(E, edgesOut, 2);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("edges threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "edges threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// triangleTriangleAdjacency
+// ---------------------------------------------------------------------------
+
+bool triangleTriangleAdjacency(const Int32Vector& faces,
+                               Int32Vector& adjacencyOut,
+                               std::string& errorOut) {
+    adjacencyOut.clear();
+    if (faces.size() % 3 != 0) {
+        errorOut = "faces buffer size must be a multiple of 3";
+        return false;
+    }
+    try {
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        Eigen::MatrixXi TT;
+        igl::triangle_triangle_adjacency(F, TT);
+        flattenI(TT, adjacencyOut, 3);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("triangleTriangleAdjacency threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "triangleTriangleAdjacency threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// rayMeshIntersect (one-shot)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Shared between the one-shot raycast and the AABB-batched version.
+void emitMissRow(Int32Vector& fids, DoubleVector& ts, DoubleVector& uvs, size_t i) {
+    fids[i] = -1;
+    ts[i] = std::numeric_limits<double>::quiet_NaN();
+    uvs[2*i + 0] = std::numeric_limits<double>::quiet_NaN();
+    uvs[2*i + 1] = std::numeric_limits<double>::quiet_NaN();
+}
+
+void emitHitRow(Int32Vector& fids, DoubleVector& ts, DoubleVector& uvs,
+                size_t i, const igl::Hit& hit) {
+    fids[i] = hit.id;
+    ts[i]   = static_cast<double>(hit.t);
+    uvs[2*i + 0] = static_cast<double>(hit.u);
+    uvs[2*i + 1] = static_cast<double>(hit.v);
+}
+
+}  // namespace
+
+bool rayMeshIntersect(const DoubleVector& origins,
+                      const DoubleVector& directions,
+                      const DoubleVector& vertices,
+                      const Int32Vector&  faces,
+                      Int32Vector& faceIdsOut,
+                      DoubleVector& tsOut,
+                      DoubleVector& barycentricsOut,
+                      std::string&  errorOut) {
+    faceIdsOut.clear();
+    tsOut.clear();
+    barycentricsOut.clear();
+    if (origins.size() != directions.size() || origins.size() % 3 != 0) {
+        errorOut = "origins and directions must each be a 3*R buffer of equal length";
+        return false;
+    }
+    if (!validateMesh(vertices, faces, errorOut)) return false;
+    try {
+        Eigen::MatrixXd V = toMatrixXd3(vertices);
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        const size_t R = origins.size() / 3;
+        faceIdsOut.resize(R);
+        tsOut.resize(R);
+        barycentricsOut.resize(2 * R);
+        for (size_t i = 0; i < R; ++i) {
+            Eigen::Vector3d o(origins[3*i + 0], origins[3*i + 1], origins[3*i + 2]);
+            Eigen::Vector3d d(directions[3*i + 0], directions[3*i + 1], directions[3*i + 2]);
+            igl::Hit hit{};
+            if (igl::ray_mesh_intersect(o, d, V, F, hit)) {
+                emitHitRow(faceIdsOut, tsOut, barycentricsOut, i, hit);
+            } else {
+                emitMissRow(faceIdsOut, tsOut, barycentricsOut, i);
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("rayMeshIntersect threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "rayMeshIntersect threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MeshAABB — opaque handle owning the AABB tree + cached V, F
+// ---------------------------------------------------------------------------
+
+struct MeshAABBHandle {
+    Eigen::MatrixXd V;
+    Eigen::MatrixXi F;
+    igl::AABB<Eigen::MatrixXd, 3> tree;
+};
+
+MeshAABBHandle* makeMeshAABB(const DoubleVector& vertices,
+                             const Int32Vector&  faces,
+                             std::string& errorOut) {
+    if (!validateMesh(vertices, faces, errorOut)) return nullptr;
+    try {
+        auto* h = new MeshAABBHandle();
+        h->V = toMatrixXd3(vertices);
+        h->F = toMatrixXi3(faces);
+        h->tree.init(h->V, h->F);
+        return h;
+    } catch (const std::exception& e) {
+        errorOut = std::string("makeMeshAABB threw: ") + e.what();
+        return nullptr;
+    } catch (...) {
+        errorOut = "makeMeshAABB threw an unknown exception";
+        return nullptr;
+    }
+}
+
+void destroyMeshAABB(MeshAABBHandle* handle) {
+    delete handle;
+}
+
+bool meshAABBClosestPoint(const MeshAABBHandle* handle,
+                          const DoubleVector& queryPoints,
+                          DoubleVector& sqrDistancesOut,
+                          Int32Vector&  faceIdsOut,
+                          DoubleVector& closestPointsOut,
+                          std::string&  errorOut) {
+    sqrDistancesOut.clear();
+    faceIdsOut.clear();
+    closestPointsOut.clear();
+    if (handle == nullptr) {
+        errorOut = "meshAABBClosestPoint: null handle";
+        return false;
+    }
+    if (queryPoints.size() % 3 != 0) {
+        errorOut = "queryPoints size must be multiple of 3";
+        return false;
+    }
+    try {
+        Eigen::MatrixXd P = toMatrixXd3(queryPoints);
+        Eigen::VectorXd sqrD;
+        Eigen::VectorXi I;
+        Eigen::MatrixXd C;
+        handle->tree.squared_distance(handle->V, handle->F, P, sqrD, I, C);
+        sqrDistancesOut.resize(static_cast<size_t>(sqrD.size()));
+        for (Eigen::Index i = 0; i < sqrD.size(); ++i) sqrDistancesOut[i] = sqrD(i);
+        faceIdsOut.resize(static_cast<size_t>(I.size()));
+        for (Eigen::Index i = 0; i < I.size(); ++i) faceIdsOut[i] = static_cast<int32_t>(I(i));
+        flatten(C, closestPointsOut);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("meshAABBClosestPoint threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "meshAABBClosestPoint threw an unknown exception";
+        return false;
+    }
+}
+
+bool meshAABBRayHits(const MeshAABBHandle* handle,
+                     const DoubleVector& origins,
+                     const DoubleVector& directions,
+                     Int32Vector&  faceIdsOut,
+                     DoubleVector& tsOut,
+                     DoubleVector& barycentricsOut,
+                     std::string&  errorOut) {
+    faceIdsOut.clear();
+    tsOut.clear();
+    barycentricsOut.clear();
+    if (handle == nullptr) {
+        errorOut = "meshAABBRayHits: null handle";
+        return false;
+    }
+    if (origins.size() != directions.size() || origins.size() % 3 != 0) {
+        errorOut = "origins and directions must each be a 3*R buffer of equal length";
+        return false;
+    }
+    try {
+        const size_t R = origins.size() / 3;
+        faceIdsOut.resize(R);
+        tsOut.resize(R);
+        barycentricsOut.resize(2 * R);
+        for (size_t i = 0; i < R; ++i) {
+            Eigen::Vector3d o(origins[3*i + 0], origins[3*i + 1], origins[3*i + 2]);
+            Eigen::Vector3d d(directions[3*i + 0], directions[3*i + 1], directions[3*i + 2]);
+            igl::Hit hit{};
+            if (handle->tree.intersect_ray(handle->V, handle->F, o, d, hit)) {
+                emitHitRow(faceIdsOut, tsOut, barycentricsOut, i, hit);
+            } else {
+                emitMissRow(faceIdsOut, tsOut, barycentricsOut, i);
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("meshAABBRayHits threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "meshAABBRayHits threw an unknown exception";
         return false;
     }
 }

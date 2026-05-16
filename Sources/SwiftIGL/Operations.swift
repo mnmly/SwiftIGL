@@ -364,6 +364,83 @@ public func gaussianCurvature(_ mesh: TriangleMesh) throws -> [Double] {
     return Array(out)
 }
 
+// MARK: - Topology
+
+/// Unique undirected edges of `mesh`. Returns a flat `2 * E` buffer of
+/// `(v0, v1)` index pairs.
+public func edges(_ mesh: TriangleMesh) throws -> [Int32] {
+    let f = makeInt32Vector(mesh.faces)
+    var out = swiftigl.Int32Vector()
+    var err = std.string()
+    let ok = swiftigl.edges(f, &out, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return Array(out)
+}
+
+/// Triangle-triangle adjacency: for each face `i` and edge `j ∈ {0,1,2}`,
+/// the index of the adjacent face, or `-1` for boundary edges.
+///
+/// Returned as a flat `3 * F` buffer. Edge convention: edge 0 is
+/// `(v0, v1)`, edge 1 is `(v1, v2)`, edge 2 is `(v2, v0)`.
+public func triangleTriangleAdjacency(_ mesh: TriangleMesh) throws -> [Int32] {
+    let f = makeInt32Vector(mesh.faces)
+    var out = swiftigl.Int32Vector()
+    var err = std.string()
+    let ok = swiftigl.triangleTriangleAdjacency(f, &out, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return Array(out)
+}
+
+// MARK: - Ray casting
+
+/// Result of a batch ray/mesh intersection.
+///
+/// All buffers have one entry per ray (or two for `barycentrics`).
+/// Misses are encoded as `faceIds[i] == -1` and `NaN` in `ts` and
+/// `barycentrics`.
+public struct RayHitsResult: Sendable {
+    /// `#R` indices of the first-hit face (`-1` if the ray missed).
+    public var faceIds: [Int32]
+    /// `#R` parametric distances along each ray (`NaN` on miss).
+    public var ts: [Double]
+    /// `2 * #R` `(u, v)` barycentric coords on the hit face; the third
+    /// coordinate is `1 - u - v`. `NaN` on miss.
+    public var barycentrics: [Double]
+}
+
+/// One-shot ray/mesh intersection.
+///
+/// For repeated queries against the same mesh, prefer
+/// ``MeshAABB/rayHits(origins:directions:)`` — building the AABB once
+/// and querying it many times is asymptotically faster.
+///
+/// - Parameters:
+///   - origins: flat `3 * R` buffer of ray origins.
+///   - directions: flat `3 * R` buffer of ray directions (need not be
+///     unit-length; `t` is reported in these units).
+///   - mesh: the triangle mesh to intersect.
+public func rayMeshIntersect(
+    origins: [Double],
+    directions: [Double],
+    on mesh: TriangleMesh
+) throws -> RayHitsResult {
+    let o = makeDoubleVector(origins)
+    let d = makeDoubleVector(directions)
+    let v = makeDoubleVector(mesh.vertices)
+    let f = makeInt32Vector(mesh.faces)
+    var fidsOut = swiftigl.Int32Vector()
+    var tsOut   = swiftigl.DoubleVector()
+    var uvsOut  = swiftigl.DoubleVector()
+    var err     = std.string()
+    let ok = swiftigl.rayMeshIntersect(o, d, v, f, &fidsOut, &tsOut, &uvsOut, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return RayHitsResult(
+        faceIds:      Array(fidsOut),
+        ts:           Array(tsOut),
+        barycentrics: Array(uvsOut)
+    )
+}
+
 /// Combinatorially-unique faces (order-independent).
 ///
 /// Useful to remove degenerate-duplicate faces from a marching-cubes

@@ -223,4 +223,84 @@ bool gaussianCurvature(const DoubleVector& vertices,
                        DoubleVector& curvatureOut,
                        std::string&  errorOut);
 
+// ---------------------------------------------------------------------------
+// Topology
+// ---------------------------------------------------------------------------
+
+/// Unique undirected edges of `(V, F)`. Returns a flat `2 * E` buffer of
+/// vertex-index pairs `(v0, v1)`.
+bool edges(const Int32Vector& faces,
+           Int32Vector& edgesOut,
+           std::string& errorOut);
+
+/// Triangle-triangle adjacency: for each face `i` and edge `j ∈ {0,1,2}`,
+/// returns the index of the adjacent face, or `-1` for a boundary edge.
+///
+/// Output is a flat `3 * F` buffer. Edge ordering: edge 0 is `(v0, v1)`,
+/// edge 1 is `(v1, v2)`, edge 2 is `(v2, v0)`.
+bool triangleTriangleAdjacency(const Int32Vector& faces,
+                               Int32Vector& adjacencyOut,
+                               std::string& errorOut);
+
+// ---------------------------------------------------------------------------
+// Ray casting (single-shot — for many rays, prefer MeshAABB)
+// ---------------------------------------------------------------------------
+
+/// One-shot ray/mesh intersection. For repeated queries against the
+/// same mesh, build a ``MeshAABBHandle`` once and use ``meshAABBRayHits``.
+///
+/// `origins` and `directions` are both flat `3 * R` buffers. Outputs:
+///   - `faceIdsOut`     — `R` indices of the first-hit face (`-1` if miss)
+///   - `tsOut`          — `R` parametric distances along each ray
+///   - `barycentricsOut`— `2 * R` `(u, v)` coords on the hit face
+bool rayMeshIntersect(const DoubleVector& origins,
+                      const DoubleVector& directions,
+                      const DoubleVector& vertices,
+                      const Int32Vector&  faces,
+                      Int32Vector& faceIdsOut,
+                      DoubleVector& tsOut,
+                      DoubleVector& barycentricsOut,
+                      std::string&  errorOut);
+
+// ---------------------------------------------------------------------------
+// MeshAABB — persistent acceleration structure
+// ---------------------------------------------------------------------------
+//
+// The `igl::AABB<MatrixXd, 3>` class plus its referenced V and F are
+// kept inside the bridge as an opaque handle. Swift wraps it via a
+// final class with deinit, never seeing the stateful template types.
+
+struct MeshAABBHandle;
+
+/// Build an AABB tree for `(vertices, faces)`. Returns nullptr on
+/// failure (message in `errorOut`). Caller owns the returned pointer
+/// and must release it via ``destroyMeshAABB``.
+MeshAABBHandle* makeMeshAABB(const DoubleVector& vertices,
+                             const Int32Vector&  faces,
+                             std::string& errorOut);
+
+/// Release a tree created by ``makeMeshAABB``. Safe to call on nullptr.
+void destroyMeshAABB(MeshAABBHandle* handle);
+
+/// Batch closest-point query against the cached mesh. Same outputs as
+/// ``pointMeshSquaredDistance`` (squared distance + face id + closest
+/// point), but ~100× faster on large meshes when amortised across
+/// many query points because the AABB is reused.
+bool meshAABBClosestPoint(const MeshAABBHandle* handle,
+                          const DoubleVector& queryPoints,
+                          DoubleVector& sqrDistancesOut,
+                          Int32Vector&  faceIdsOut,
+                          DoubleVector& closestPointsOut,
+                          std::string&  errorOut);
+
+/// Batch ray/mesh intersection against the cached mesh. Inputs and
+/// outputs match ``rayMeshIntersect``.
+bool meshAABBRayHits(const MeshAABBHandle* handle,
+                     const DoubleVector& origins,
+                     const DoubleVector& directions,
+                     Int32Vector&  faceIdsOut,
+                     DoubleVector& tsOut,
+                     DoubleVector& barycentricsOut,
+                     std::string&  errorOut);
+
 }  // namespace swiftigl

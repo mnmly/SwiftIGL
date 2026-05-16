@@ -84,6 +84,24 @@ let recon = try marchingCubes(scalars: sdf.distances, grid: grid)
 - ``faceBarycenters(_:)``
 - ``gaussianCurvature(_:)``
 
+### Topology
+
+- ``edges(_:)``
+- ``triangleTriangleAdjacency(_:)``
+
+### Ray casting
+
+- ``rayMeshIntersect(origins:directions:on:)``
+- ``RayHitsResult``
+
+### Persistent acceleration
+
+For repeated queries against the same mesh, build a ``MeshAABB`` once
+and reuse it. Each query is `O(log F)` amortised, vs. the `O(F)` work
+that one-shot calls do per ray/point.
+
+- ``MeshAABB``
+
 ### Mesh processing
 
 - ``boundingBox(_:pad:)``
