@@ -7,12 +7,6 @@ once it reaches `1.0.0`.
 
 ## [Unreleased]
 
-### Added
-- `MeshToSDF` executable target — end-to-end demo of the
-  mesh → SDF → marching-cubes pipeline.
-- Error-path tests covering invalid buffer shapes and missing files.
-- CHANGELOG.
-
 ## [0.2.0]
 
 ### Added (closest-point / barycentric / curvature — o-voxel-aligned)
@@ -26,7 +20,13 @@ once it reaches `1.0.0`.
 - ``gaussianCurvature(_:)`` — per-vertex discrete angle deficit
   (verified on cube via Gauss-Bonnet sum = 4π).
 
-### Added (infrastructure)
+### Added (tooling and infrastructure)
+- `MeshToSDF` executable target — end-to-end demo of the
+  mesh → SDF → marching-cubes pipeline (`swift run MeshToSDF in.obj
+  out.obj [grid-side] [pad]`).
+- Error-path tests covering invalid buffer shapes and missing files
+  (5 new tests; 22 total).
+- CHANGELOG.
 - GitHub Actions CI (`swift build` + `swift test` on macOS 15 arm64).
 - DocC GitHub Pages deployment workflow.
 - README quick-start with badges and SPM install snippet.
