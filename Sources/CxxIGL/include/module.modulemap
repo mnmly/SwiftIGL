@@ -1,0 +1,5 @@
+module CxxIGL {
+    header "CxxIGL.hpp"
+    requires cplusplus
+    export *
+}
