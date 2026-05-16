@@ -228,6 +228,142 @@ public func removeDuplicateVertices(
     )
 }
 
+// MARK: - Closest-point / barycentric / curvature
+
+/// Result of a ``pointMeshSquaredDistance(of:on:)`` query.
+public struct PointMeshDistanceResult: Sendable {
+    /// `#P` squared distances to the closest face.
+    public var sqrDistances: [Double]
+    /// `#P` indices of the closest face for each query point.
+    public var faceIds: [Int32]
+    /// `3 * #P` closest-point coordinates on the mesh.
+    public var closestPoints: [Double]
+}
+
+/// Squared distance from each query point to the closest face of `mesh`.
+///
+/// Cheaper than ``signedDistance(of:on:type:)`` — no sign computation.
+/// Use this when you only need raw proximity (e.g. nearest-face lookup
+/// for texture transfer); use ``signedDistance(of:on:type:)`` when you
+/// need inside/outside information.
+public func pointMeshSquaredDistance(
+    of queryPoints: [Double],
+    on mesh: TriangleMesh
+) throws -> PointMeshDistanceResult {
+    let p = makeDoubleVector(queryPoints)
+    let v = makeDoubleVector(mesh.vertices)
+    let f = makeInt32Vector(mesh.faces)
+    var sqrOut = swiftigl.DoubleVector()
+    var idsOut = swiftigl.Int32Vector()
+    var cpOut  = swiftigl.DoubleVector()
+    var err    = std.string()
+    let ok = swiftigl.pointMeshSquaredDistance(p, v, f, &sqrOut, &idsOut, &cpOut, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return PointMeshDistanceResult(
+        sqrDistances:  Array(sqrOut),
+        faceIds:       Array(idsOut),
+        closestPoints: Array(cpOut)
+    )
+}
+
+/// Barycentric coordinates of each query point w.r.t. the matching
+/// triangle `(A_i, B_i, C_i)`.
+///
+/// All four inputs must be flat 3 * P buffers. Returns a flat 3 * P
+/// `(u, v, w)` buffer where `u + v + w = 1` (within fp tolerance).
+public func barycentricCoordinates(
+    of queryPoints: [Double],
+    in triangles: (a: [Double], b: [Double], c: [Double])
+) throws -> [Double] {
+    let p = makeDoubleVector(queryPoints)
+    let a = makeDoubleVector(triangles.a)
+    let b = makeDoubleVector(triangles.b)
+    let c = makeDoubleVector(triangles.c)
+    var out = swiftigl.DoubleVector()
+    var err = std.string()
+    let ok = swiftigl.barycentricCoordinates(p, a, b, c, &out, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return Array(out)
+}
+
+/// Closest-point query result enriched with barycentric coordinates on
+/// the closest face — the natural output of an o-voxel-style BVH probe
+/// (`bvh.unsigned_distance(..., return_uvw=True)`).
+public struct ClosestPointBarycentricsResult: Sendable {
+    /// `#P` squared distances.
+    public var sqrDistances: [Double]
+    /// `#P` closest face indices.
+    public var faceIds: [Int32]
+    /// `3 * #P` closest-point coordinates.
+    public var closestPoints: [Double]
+    /// `3 * #P` barycentric coordinates `(u, v, w)` on the closest face.
+    public var barycentrics: [Double]
+}
+
+/// One-shot equivalent of `bvh.unsigned_distance(..., return_uvw=True)`
+/// in o-voxel: returns the closest face per query, plus the closest
+/// point and its barycentric coordinates on that face.
+///
+/// Useful for texture transfer, attribute baking, and any "find the
+/// closest spot on the surface and read something there" workflow.
+public func closestPointBarycentrics(
+    of queryPoints: [Double],
+    on mesh: TriangleMesh
+) throws -> ClosestPointBarycentricsResult {
+    let pmd = try pointMeshSquaredDistance(of: queryPoints, on: mesh)
+
+    // Build per-query triangle corner buffers from the closest face ids.
+    let pCount = pmd.faceIds.count
+    var aBuf = [Double](repeating: 0, count: pCount * 3)
+    var bBuf = [Double](repeating: 0, count: pCount * 3)
+    var cBuf = [Double](repeating: 0, count: pCount * 3)
+    for i in 0..<pCount {
+        let fid = Int(pmd.faceIds[i])
+        let face = mesh[face: fid]
+        for k in 0..<3 {
+            aBuf[3*i + k] = mesh.vertices[3 * Int(face.x) + k]
+            bBuf[3*i + k] = mesh.vertices[3 * Int(face.y) + k]
+            cBuf[3*i + k] = mesh.vertices[3 * Int(face.z) + k]
+        }
+    }
+    let bary = try barycentricCoordinates(
+        of: pmd.closestPoints,
+        in: (a: aBuf, b: bBuf, c: cBuf)
+    )
+    return ClosestPointBarycentricsResult(
+        sqrDistances:  pmd.sqrDistances,
+        faceIds:       pmd.faceIds,
+        closestPoints: pmd.closestPoints,
+        barycentrics:  bary
+    )
+}
+
+/// Per-face barycenters (centroids). Returns a flat 3 * F buffer.
+public func faceBarycenters(_ mesh: TriangleMesh) throws -> [Double] {
+    let v = makeDoubleVector(mesh.vertices)
+    let f = makeInt32Vector(mesh.faces)
+    var out = swiftigl.DoubleVector()
+    var err = std.string()
+    let ok = swiftigl.faceBarycenters(v, f, &out, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return Array(out)
+}
+
+/// Per-vertex discrete Gaussian curvature (2π minus sum of interior
+/// angles). Returns a `#V` buffer.
+///
+/// Sum should equal `2π · χ(M)` for a closed manifold by Gauss-Bonnet —
+/// e.g. `4π` for a topological sphere.
+public func gaussianCurvature(_ mesh: TriangleMesh) throws -> [Double] {
+    let v = makeDoubleVector(mesh.vertices)
+    let f = makeInt32Vector(mesh.faces)
+    var out = swiftigl.DoubleVector()
+    var err = std.string()
+    let ok = swiftigl.gaussianCurvature(v, f, &out, &err)
+    if !ok { throw IGLError.operationFailed(String(err)) }
+    return Array(out)
+}
+
 /// Combinatorially-unique faces (order-independent).
 ///
 /// Useful to remove degenerate-duplicate faces from a marching-cubes

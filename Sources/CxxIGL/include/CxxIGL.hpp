@@ -179,4 +179,48 @@ bool uniqueSimplices(const Int32Vector& faces,
                      Int32Vector& facesOut,
                      std::string& errorOut);
 
+// ---------------------------------------------------------------------------
+// Closest-point / barycentric / curvature queries (o-voxel-aligned)
+// ---------------------------------------------------------------------------
+
+/// Squared distance from each query point to the closest face of (V, F).
+///
+/// Cheaper than ``signedDistance`` (no sign computation). Outputs:
+///   - `sqrDistancesOut`  — `#P` squared distances
+///   - `faceIdsOut`       — `#P` closest face indices
+///   - `closestPointsOut` — `3 * #P` closest-point coordinates
+bool pointMeshSquaredDistance(const DoubleVector& queryPoints,
+                              const DoubleVector& vertices,
+                              const Int32Vector&  faces,
+                              DoubleVector& sqrDistancesOut,
+                              Int32Vector&  faceIdsOut,
+                              DoubleVector& closestPointsOut,
+                              std::string&  errorOut);
+
+/// Barycentric coordinates of `#P` query points, each w.r.t. a triangle
+/// `(A_i, B_i, C_i)`. Inputs are flat 3*P buffers, output is flat 3*P
+/// `(u, v, w)` per query.
+bool barycentricCoordinates(const DoubleVector& queryPoints,
+                            const DoubleVector& triangleA,
+                            const DoubleVector& triangleB,
+                            const DoubleVector& triangleC,
+                            DoubleVector& barycentricsOut,
+                            std::string&  errorOut);
+
+/// Per-face barycenters (centroids). Returns a flat 3 * F buffer.
+bool faceBarycenters(const DoubleVector& vertices,
+                     const Int32Vector&  faces,
+                     DoubleVector& barycentersOut,
+                     std::string&  errorOut);
+
+/// Per-vertex discrete Gaussian curvature (2π minus sum of interior
+/// angles at each vertex). Returns a `#V` buffer.
+///
+/// Note: meaningful for interior vertices of a manifold mesh; boundary
+/// vertices receive a related but less-physical value.
+bool gaussianCurvature(const DoubleVector& vertices,
+                       const Int32Vector&  faces,
+                       DoubleVector& curvatureOut,
+                       std::string&  errorOut);
+
 }  // namespace swiftigl

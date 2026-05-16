@@ -14,6 +14,10 @@
 #include <igl/decimate.h>
 #include <igl/remove_duplicate_vertices.h>
 #include <igl/unique_simplices.h>
+#include <igl/point_mesh_squared_distance.h>
+#include <igl/barycentric_coordinates.h>
+#include <igl/barycenter.h>
+#include <igl/gaussian_curvature.h>
 
 #include <exception>
 #include <limits>
@@ -502,6 +506,134 @@ bool uniqueSimplices(const Int32Vector& faces,
         return false;
     } catch (...) {
         errorOut = "uniqueSimplices threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pointMeshSquaredDistance
+// ---------------------------------------------------------------------------
+
+bool pointMeshSquaredDistance(const DoubleVector& queryPoints,
+                              const DoubleVector& vertices,
+                              const Int32Vector&  faces,
+                              DoubleVector& sqrDistancesOut,
+                              Int32Vector&  faceIdsOut,
+                              DoubleVector& closestPointsOut,
+                              std::string&  errorOut) {
+    sqrDistancesOut.clear();
+    faceIdsOut.clear();
+    closestPointsOut.clear();
+    if (queryPoints.size() % 3 != 0) { errorOut = "queryPoints size must be multiple of 3"; return false; }
+    if (!validateMesh(vertices, faces, errorOut)) return false;
+    try {
+        Eigen::MatrixXd P = toMatrixXd3(queryPoints);
+        Eigen::MatrixXd V = toMatrixXd3(vertices);
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        Eigen::VectorXd sqrD;
+        Eigen::VectorXi I;
+        Eigen::MatrixXd C;
+        igl::point_mesh_squared_distance(P, V, F, sqrD, I, C);
+        sqrDistancesOut.resize(static_cast<size_t>(sqrD.size()));
+        for (Eigen::Index i = 0; i < sqrD.size(); ++i) sqrDistancesOut[i] = sqrD(i);
+        faceIdsOut.resize(static_cast<size_t>(I.size()));
+        for (Eigen::Index i = 0; i < I.size(); ++i) faceIdsOut[i] = static_cast<int32_t>(I(i));
+        flatten(C, closestPointsOut);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("pointMeshSquaredDistance threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "pointMeshSquaredDistance threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// barycentricCoordinates
+// ---------------------------------------------------------------------------
+
+bool barycentricCoordinates(const DoubleVector& queryPoints,
+                            const DoubleVector& triangleA,
+                            const DoubleVector& triangleB,
+                            const DoubleVector& triangleC,
+                            DoubleVector& barycentricsOut,
+                            std::string&  errorOut) {
+    barycentricsOut.clear();
+    if (queryPoints.size() % 3 != 0 ||
+        triangleA.size() != queryPoints.size() ||
+        triangleB.size() != queryPoints.size() ||
+        triangleC.size() != queryPoints.size()) {
+        errorOut = "queryPoints, A, B, C must all be 3*P-sized";
+        return false;
+    }
+    try {
+        Eigen::MatrixXd P = toMatrixXd3(queryPoints);
+        Eigen::MatrixXd A = toMatrixXd3(triangleA);
+        Eigen::MatrixXd B = toMatrixXd3(triangleB);
+        Eigen::MatrixXd C = toMatrixXd3(triangleC);
+        Eigen::MatrixXd L;
+        igl::barycentric_coordinates(P, A, B, C, L);
+        flatten(L, barycentricsOut);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("barycentricCoordinates threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "barycentricCoordinates threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// faceBarycenters
+// ---------------------------------------------------------------------------
+
+bool faceBarycenters(const DoubleVector& vertices,
+                     const Int32Vector&  faces,
+                     DoubleVector& barycentersOut,
+                     std::string&  errorOut) {
+    barycentersOut.clear();
+    if (!validateMesh(vertices, faces, errorOut)) return false;
+    try {
+        Eigen::MatrixXd V = toMatrixXd3(vertices);
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        Eigen::MatrixXd BC;
+        igl::barycenter(V, F, BC);
+        flatten(BC, barycentersOut);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("faceBarycenters threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "faceBarycenters threw an unknown exception";
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// gaussianCurvature
+// ---------------------------------------------------------------------------
+
+bool gaussianCurvature(const DoubleVector& vertices,
+                       const Int32Vector&  faces,
+                       DoubleVector& curvatureOut,
+                       std::string&  errorOut) {
+    curvatureOut.clear();
+    if (!validateMesh(vertices, faces, errorOut)) return false;
+    try {
+        Eigen::MatrixXd V = toMatrixXd3(vertices);
+        Eigen::MatrixXi F = toMatrixXi3(faces);
+        Eigen::VectorXd K;
+        igl::gaussian_curvature(V, F, K);
+        curvatureOut.resize(static_cast<size_t>(K.size()));
+        for (Eigen::Index i = 0; i < K.size(); ++i) curvatureOut[i] = K(i);
+        return true;
+    } catch (const std::exception& e) {
+        errorOut = std::string("gaussianCurvature threw: ") + e.what();
+        return false;
+    } catch (...) {
+        errorOut = "gaussianCurvature threw an unknown exception";
         return false;
     }
 }

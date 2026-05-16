@@ -115,6 +115,106 @@ struct VoxelizationTests {
     }
 }
 
+@Suite("Closest-point & barycentric")
+struct ClosestPointTests {
+
+    private func loadCube() throws -> TriangleMesh {
+        let url = try #require(Bundle.module.url(forResource: "cube", withExtension: "obj"))
+        return try readTriangleMesh(at: url)
+    }
+
+    @Test("pointMeshSquaredDistance returns zero for on-surface points")
+    func pmsdOnSurface() throws {
+        let mesh = try loadCube()
+        // Sample 3 vertices of the cube directly.
+        let queries: [Double] = [
+            mesh.vertices[0], mesh.vertices[1], mesh.vertices[2],
+            mesh.vertices[3], mesh.vertices[4], mesh.vertices[5],
+            mesh.vertices[6], mesh.vertices[7], mesh.vertices[8],
+        ]
+        let r = try SwiftIGL.pointMeshSquaredDistance(of: queries, on: mesh)
+        #expect(r.sqrDistances.count == 3)
+        for d in r.sqrDistances {
+            #expect(d < 1e-12, "vertex-on-mesh sqrD should be 0, got \(d)")
+        }
+    }
+
+    @Test("pointMeshSquaredDistance: exterior point projects to face")
+    func pmsdProjection() throws {
+        let mesh = try loadCube()
+        // Point at (2, 0, 0): the cube spans [-0.5, 0.5]^3, so closest
+        // point is on the +x face at (0.5, 0, 0), squared distance 2.25.
+        let r = try SwiftIGL.pointMeshSquaredDistance(of: [2, 0, 0], on: mesh)
+        #expect(Swift.abs(r.sqrDistances[0] - 2.25) < 1e-9)
+        #expect(Swift.abs(r.closestPoints[0] - 0.5) < 1e-9)
+        #expect(Swift.abs(r.closestPoints[1]) < 1e-9)
+        #expect(Swift.abs(r.closestPoints[2]) < 1e-9)
+    }
+
+    @Test("barycentricCoordinates: centroid of canonical triangle is (1/3, 1/3, 1/3)")
+    func barycentricCentroid() throws {
+        let p: [Double] = [1.0/3.0, 1.0/3.0, 0]   // centroid of (0,0)-(1,0)-(0,1)
+        let a: [Double] = [0, 0, 0]
+        let b: [Double] = [1, 0, 0]
+        let c: [Double] = [0, 1, 0]
+        let bary = try SwiftIGL.barycentricCoordinates(of: p, in: (a: a, b: b, c: c))
+        #expect(bary.count == 3)
+        for v in bary {
+            #expect(Swift.abs(v - 1.0/3.0) < 1e-9, "expected 1/3, got \(v)")
+        }
+    }
+
+    @Test("closestPointBarycentrics: exterior point gets valid barycentrics")
+    func combinedClosestBarycentric() throws {
+        let mesh = try loadCube()
+        let r = try SwiftIGL.closestPointBarycentrics(of: [2, 0.1, 0.1], on: mesh)
+        // u + v + w should sum to 1 (within fp tolerance).
+        let sum = r.barycentrics[0] + r.barycentrics[1] + r.barycentrics[2]
+        #expect(Swift.abs(sum - 1.0) < 1e-9, "barycentric sum should be 1, got \(sum)")
+        // All three should be non-negative for a point projecting strictly
+        // *inside* the closest triangle.
+        for w in r.barycentrics {
+            #expect(w >= -1e-9, "barycentric component should be non-negative, got \(w)")
+        }
+    }
+}
+
+@Suite("Geometric analysis")
+struct GeometricAnalysisTests {
+
+    private func loadCube() throws -> TriangleMesh {
+        let url = try #require(Bundle.module.url(forResource: "cube", withExtension: "obj"))
+        return try readTriangleMesh(at: url)
+    }
+
+    @Test("faceBarycenters: cube face centroids lie on ±0.5 planes")
+    func centroidShape() throws {
+        let mesh = try loadCube()
+        let bc = try SwiftIGL.faceBarycenters(mesh)
+        #expect(bc.count == 3 * mesh.faceCount)
+        // Every face centroid of the unit cube has exactly one coordinate
+        // at ±0.5 (the face it lives on) — i.e. max |coord| == 0.5.
+        for i in 0..<mesh.faceCount {
+            let mx = max(Swift.abs(bc[3*i]), Swift.abs(bc[3*i + 1]), Swift.abs(bc[3*i + 2]))
+            #expect(Swift.abs(mx - 0.5) < 1e-9, "face \(i) centroid not on ±0.5 plane: \(mx)")
+        }
+    }
+
+    @Test("gaussianCurvature: cube vertex angle deficit is π/2")
+    func cubeGaussianCurvature() throws {
+        let mesh = try loadCube()
+        let K = try SwiftIGL.gaussianCurvature(mesh)
+        #expect(K.count == mesh.vertexCount)
+        // Each cube corner has three 90° angles meeting → angle deficit
+        // is 2π − 3·(π/2) = π/2. Gauss-Bonnet check: sum = 8 · π/2 = 4π.
+        for (i, k) in K.enumerated() {
+            #expect(Swift.abs(k - .pi / 2) < 1e-9, "vertex \(i) angle deficit ≠ π/2: \(k)")
+        }
+        let total = K.reduce(0, +)
+        #expect(Swift.abs(total - 4 * .pi) < 1e-9, "Gauss-Bonnet sum should be 4π, got \(total)")
+    }
+}
+
 @Suite("Mesh processing")
 struct MeshProcessingTests {
 

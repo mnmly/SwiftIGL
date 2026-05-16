@@ -71,6 +71,19 @@ let recon = try marchingCubes(scalars: sdf.distances, grid: grid)
 - ``voxelGrid(bboxMin:bboxMax:largestSide:pad:)``
 - ``marchingCubes(scalars:grid:isovalue:)``
 
+### Closest-point and barycentric queries
+
+- ``pointMeshSquaredDistance(of:on:)``
+- ``PointMeshDistanceResult``
+- ``barycentricCoordinates(of:in:)``
+- ``closestPointBarycentrics(of:on:)``
+- ``ClosestPointBarycentricsResult``
+
+### Geometric analysis
+
+- ``faceBarycenters(_:)``
+- ``gaussianCurvature(_:)``
+
 ### Mesh processing
 
 - ``boundingBox(_:pad:)``
