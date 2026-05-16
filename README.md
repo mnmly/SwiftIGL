@@ -57,6 +57,16 @@ try writeTriangleMesh(recon, to: outURL)
 
 Full API: see the [DocC reference](https://mnmly.github.io/SwiftIGL/documentation/swiftigl/).
 
+### End-to-end demo executable
+
+```sh
+swift run MeshToSDF input.obj reconstructed.obj 128 0.05
+```
+
+Reads the mesh → builds a 128³ voxel grid covering its padded bbox → samples
+the SDF via fast winding number → extracts the iso-surface with marching
+cubes → writes it. Source in `Sources/MeshToSDF/main.swift`.
+
 ## Current surface (v0.1)
 
 - **Mesh I/O** — `readTriangleMesh`, `writeTriangleMesh` (`.obj`, `.off`, `.ply`, `.stl`, `.mesh`, `.wrl`)

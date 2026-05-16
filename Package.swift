@@ -55,6 +55,16 @@ let package = Package(
             ]
         ),
 
+        // End-to-end demo: mesh -> SDF -> marching cubes -> mesh.
+        // Run with: swift run MeshToSDF <in> <out> [grid-side] [pad]
+        .executableTarget(
+            name: "MeshToSDF",
+            dependencies: ["SwiftIGL"],
+            swiftSettings: [
+                .interoperabilityMode(.Cxx)
+            ]
+        ),
+
         .testTarget(
             name: "SwiftIGLTests",
             dependencies: ["SwiftIGL"],
